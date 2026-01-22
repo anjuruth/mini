@@ -1,15 +1,14 @@
+# =========================================================
+# VOICE / TEXT TO ISL GLOSS USING RULE-BASED NLP (PYTHON)
+# =========================================================
 
-
-# ===============================
-# 1) VOICE → TEXT
-# ===============================
 import speech_recognition as sr
 import re
-import json
-import asyncio
-import websockets
 
-# ---------- Speech to Text ----------
+# =========================================================
+# 1) VOICE → TEXT
+# =========================================================
+
 def voice_to_text():
     recognizer = sr.Recognizer()
 
@@ -26,96 +25,152 @@ def voice_to_text():
         text = recognizer.recognize_google(audio)
         return text.upper()
     except Exception as e:
-        print("Speech error:", e)
+        print("Speech recognition error:", e)
         return ""
 
+# =========================================================
+# 2) RULE-BASED NLP (TEXT → ISL GLOSS)
+# =========================================================
 
-# ===============================
-# 2) TEXT → GLOSS
-# ===============================
+STOP_WORDS = {
+    "AM", "IS", "ARE", "WAS", "WERE",
+    "A", "AN", "THE", "TO", "OF", "IN", "ON", "AT",
+    "WILL", "SHALL", "WOULD", "DO", "DID"
+}
 
-# Instead of JSON file, using Python dictionary inside same file
+TIME_WORDS = {
+    "TODAY", "TOMORROW", "YESTERDAY",
+    "MORNING", "NIGHT", "EVENING"
+}
+
+NEGATION_WORDS = {"NOT", "NO", "NEVER"}
+
+WH_WORDS = {"WHAT", "WHERE", "WHY", "HOW", "WHEN"}
+
+SUBJECT_WORDS = {"I", "YOU", "HE", "SHE", "WE", "THEY"}
+
+VERB_MAP = {
+    "GOING": "GO",
+    "WENT": "GO",
+    "COME": "COME",
+    "COMING": "COME",
+    "LIKING": "LIKE",
+    "LOVING": "LOVE",
+    "EATING": "EAT",
+    "ATE": "EAT"
+}
+
 GLOSS_DICT = {
-    "GOOD": "GOOD",
-    "MORNING": "MORNING",
     "I": "I",
+    "YOU": "YOU",
+    "HE": "HE",
+    "SHE": "SHE",
+    "WE": "WE",
+    "THEY": "THEY",
+    "GO": "GO",
+    "COME": "COME",
+    "LIKE": "LIKE",
     "LOVE": "LOVE",
-    "YOU": "YOU"
+    "EAT": "EAT",
+    "SCHOOL": "SCHOOL",
+    "COLLEGE": "COLLEGE",
+    "FOOD": "FOOD",
+    "TODAY": "TODAY",
+    "TOMORROW": "TOMORROW",
+    "YESTERDAY": "YESTERDAY",
+    "NO": "NO"
 }
 
 def text_to_gloss(text):
     tokens = re.findall(r"\w+", text.upper())
-    gloss_output = []
 
-    for t in tokens:
-        if t in GLOSS_DICT:
-            gloss_output.append(GLOSS_DICT[t])
+    time = []
+    subject = []
+    verb = []
+    obj = []
+    negation = []
+    wh = []
+
+    for word in tokens:
+
+        if word in STOP_WORDS:
+            continue
+
+        if word in TIME_WORDS:
+            time.append(word)
+            continue
+
+        if word in NEGATION_WORDS:
+            negation.append("NO")
+            continue
+
+        if word in WH_WORDS:
+            wh.append(word)
+            continue
+
+        if word in VERB_MAP:
+            word = VERB_MAP[word]
+
+        if word in SUBJECT_WORDS:
+            subject.append(word)
+        elif word in GLOSS_DICT:
+            if word in VERB_MAP.values():
+                verb.append(word)
+            else:
+                obj.append(word)
         else:
-            gloss_output.append(t)
-    return gloss_output
+            obj.append(word)
 
+    # ISL ORDER: TIME – OBJECT – SUBJECT – VERB – NEG – WH
+    gloss_sentence = time + obj + subject + verb + negation + wh
+    return gloss_sentence
 
-# ===============================
-# 3) GLOSS → ANIMATION CLIPS
-# ===============================
+# =========================================================
+# 3) GLOSS → BVH FILES (BLENDER)
+# =========================================================
 
-CLIP_MAP = {
-    "GOOD": "good.bvh",
-    "MORNING": "morning.bvh",
+BVH_MAP = {
+    "I": "i.bvh",
     "YOU": "you.bvh",
-    "LOVE": "love.bvh"
+    "GO": "go.bvh",
+    "COME": "come.bvh",
+    "LOVE": "love.bvh",
+    "LIKE": "like.bvh",
+    "EAT": "eat.bvh",
+    "SCHOOL": "school.bvh",
+    "COLLEGE": "college.bvh",
+    "FOOD": "food.bvh",
+    "TODAY": "today.bvh",
+    "TOMORROW": "tomorrow.bvh",
+    "YESTERDAY": "yesterday.bvh",
+    "NO": "no.bvh",
+    "WHERE": "where.bvh"
 }
 
-def gloss_to_clips(gloss_list):
-    clips = []
+def gloss_to_bvh(gloss_list):
+    bvh_files = []
+
     for g in gloss_list:
-        if g in CLIP_MAP:
-            clips.append(CLIP_MAP[g])
+        if g in BVH_MAP:
+            bvh_files.append(BVH_MAP[g])
         else:
-            print(f"⚠ No clip for: {g}")
-    return clips
+            print(f"⚠ No BVH file for: {g}")
 
+    return bvh_files
 
-# ===============================
-# 4) SEND TO UNITY (WebSocket)
-# ===============================
+# =========================================================
+# 4) MAIN PIPELINE
+# =========================================================
 
-async def send_to_unity_async(clips):
-    uri = "ws://localhost:9000"
+print("🎯 Voice/Text → ISL Grammar → Gloss → Blender BVH")
 
-    try:
-        async with websockets.connect(uri) as ws:
-            message = {
-                "type": "play_sequence",
-                "clips": clips
-            }
-            await ws.send(json.dumps(message))
-            print("Sent to Unity:", message)
-    except Exception as e:
-        print("Unity connection error:", e)
-
-def send_to_unity(clips):
-    asyncio.run(send_to_unity_async(clips))
-
-
-# ===============================
-# 5) MAIN PIPELINE
-# ===============================
-
-print("🎯 Voice → Text → Gloss → Sign Animation")
-
-# STEP 1: VOICE → TEXT
 text = voice_to_text()
-print("You said:", text)
+print("📝 Recognized Text:", text)
 
-# STEP 2: TEXT → GLOSS
-gloss = text_to_gloss(text)
-print("Gloss sequence:", gloss)
+gloss_output = text_to_gloss(text)
+print("🔤 ISL Gloss:", gloss_output)
 
-# STEP 3: GLOSS → CLIPS
-clips = gloss_to_clips(gloss)
-print("Animation clips:", clips)
+bvh_sequence = gloss_to_bvh(gloss_output)
+print("🎬 BVH Sequence:", bvh_sequence)
 
-# STEP 4: SEND TO UNITY
-if clips:
-    send_to_unity(clips)
+print("\n✅ Import BVH files sequentially in Blender.")
